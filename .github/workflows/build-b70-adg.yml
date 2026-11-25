@@ -40,13 +40,12 @@ jobs:
           wget -q -t3 --timeout=60 -O adg.tar.gz \
             https://github.com/AdguardTeam/AdGuardHome/releases/latest/download/AdGuardHome_linux_mipsle_softfloat.tar.gz
           tar xzf adg.tar.gz
-          cp -f AdGuardHome/AdGuardHome ./AdGuardHome
-          chmod +x ./AdGuardHome
-          ls -lh ./AdGuardHome
-          file ./AdGuardHome || true
-          ./AdGuardHome --version || echo "cannot exec on x86 host (expected)"
+          cp -f AdGuardHome/AdGuardHome ./adg-bin
+          chmod +x ./adg-bin
+          ls -lh ./adg-bin
+          file ./adg-bin || true
           # Makefile: also install the binary to /usr/bin
-          printf '\t$(ROMFSINST) -p +x $(THISDIR)/AdGuardHome /usr/bin/AdGuardHome\n' >> Makefile
+          printf '\t$(ROMFSINST) -p +x $(THISDIR)/adg-bin /usr/bin/AdGuardHome\n' >> Makefile
           cat Makefile
           # script: stop downloading at runtime, use the embedded binary
           sed -i 's#^curl -k -s -o /tmp/AdGuardHome/AdGuardHome.*#cp -f /usr/bin/AdGuardHome /tmp/AdGuardHome/AdGuardHome#' adguardhome.sh
@@ -159,7 +158,6 @@ jobs:
           cd trunk
           echo "--- romfs content check ---"
           ls -lh romfs/usr/bin/AdGuardHome 2>/dev/null || ls -lh stage/usr/bin/AdGuardHome 2>/dev/null || echo "not found in romfs/stage"
-          grep -c "AdGuardHome" build.log || true
 
       - name: Checksum and package
         if: success()
