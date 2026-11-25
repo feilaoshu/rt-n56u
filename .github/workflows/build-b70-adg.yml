@@ -1,0 +1,183 @@
+name: Build B70 Padavan (ADG embedded)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install unzip libtool-bin curl cmake gperf gawk flex bison xxd \
+            fakeroot cpio git python3-docutils gettext automake autopoint texinfo \
+            build-essential help2man pkg-config zlib1g-dev libncurses-dev libltdl-dev \
+            wget device-tree-compiler rsync
+
+      - name: Download prebuilt mipsel toolchain
+        run: |
+          cd toolchain-mipsel
+          sh dl_toolchain.sh
+          toolchain-3.4.x/bin/mipsel-linux-uclibc-gcc --version | head -1
+
+      - name: Fix Go download mirror
+        run: |
+          sed -i 's#https://gomirrors.org/dl/go/#https://go.dev/dl/#g' trunk/tools/Makefile
+          grep -n "go.dev" trunk/tools/Makefile
+
+      - name: Fetch AdGuardHome mipsle binary (embed into squashfs)
+        run: |
+          set -e
+          cd trunk/user/adguardhome
+          wget -q -t3 --timeout=60 -O adg.tar.gz \
+            https://github.com/AdguardTeam/AdGuardHome/releases/latest/download/AdGuardHome_linux_mipsle_softfloat.tar.gz
+          tar xzf adg.tar.gz
+          cp -f AdGuardHome/AdGuardHome ./AdGuardHome
+          chmod +x ./AdGuardHome
+          ls -lh ./AdGuardHome
+          file ./AdGuardHome || true
+          ./AdGuardHome --version || echo "cannot exec on x86 host (expected)"
+          # Makefile: also install the binary to /usr/bin
+          printf '\t$(ROMFSINST) -p +x $(THISDIR)/AdGuardHome /usr/bin/AdGuardHome\n' >> Makefile
+          cat Makefile
+          # script: stop downloading at runtime, use the embedded binary
+          sed -i 's#^curl -k -s -o /tmp/AdGuardHome/AdGuardHome.*#cp -f /usr/bin/AdGuardHome /tmp/AdGuardHome/AdGuardHome#' adguardhome.sh
+          grep -n "cp -f /usr/bin/AdGuardHome" adguardhome.sh
+
+      - name: Configure firmware (network-focused + AdGuardHome)
+        run: |
+          cd trunk
+          cp -f configs/templates/B70.config .config
+          sed -i "s#^CONFIG_TOOLCHAIN_DIR=.*#CONFIG_TOOLCHAIN_DIR=$(pwd)/../toolchain-mipsel#g" .config
+          cat >> .config <<'EOF'
+
+          CONFIG_FIRMWARE_INCLUDE_ADGUARDHOME=y
+          CONFIG_FIRMWARE_INCLUDE_ZEROTIER=n
+          CONFIG_FIRMWARE_INCLUDE_FRPC=y
+          CONFIG_FIRMWARE_INCLUDE_FRPS=n
+          CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n
+          CONFIG_FIRMWARE_INCLUDE_SSSERVER=n
+          CONFIG_FIRMWARE_INCLUDE_V2RAY=n
+          CONFIG_FIRMWARE_INCLUDE_TROJAN=n
+          CONFIG_FIRMWARE_INCLUDE_SSOBFS=n
+          CONFIG_FIRMWARE_INCLUDE_SRELAY=n
+          CONFIG_FIRMWARE_INCLUDE_TUNSAFE=n
+          CONFIG_FIRMWARE_INCLUDE_xTUN=n
+          CONFIG_FIRMWARE_INCLUDE_ADBYBY=n
+          CONFIG_FIRMWARE_INCLUDE_KOOLPROXY=n
+          CONFIG_FIRMWARE_INCLUDE_SMARTDNS=n
+          CONFIG_FIRMWARE_INCLUDE_DNSFORWARDER=n
+          CONFIG_FIRMWARE_INCLUDE_ALIDDNS=n
+          CONFIG_FIRMWARE_INCLUDE_NTFS_3G=y
+          CONFIG_FIRMWARE_INCLUDE_SMBD=y
+          CONFIG_FIRMWARE_INCLUDE_SMBD36=n
+          CONFIG_FIRMWARE_INCLUDE_WINS=n
+          CONFIG_FIRMWARE_INCLUDE_SMBD_SYSLOG=n
+          CONFIG_FIRMWARE_INCLUDE_NFSD=n
+          CONFIG_FIRMWARE_INCLUDE_NFSC=n
+          CONFIG_FIRMWARE_INCLUDE_CIFS=n
+          CONFIG_FIRMWARE_INCLUDE_FTPD=y
+          CONFIG_FIRMWARE_INCLUDE_SFTP=y
+          CONFIG_FIRMWARE_INCLUDE_OPENSSH=y
+          CONFIG_FIRMWARE_INCLUDE_CURL=y
+          CONFIG_FIRMWARE_INCLUDE_SFE=y
+          CONFIG_FIRMWARE_INCLUDE_TCPDUMP=y
+          CONFIG_FIRMWARE_INCLUDE_IPERF3=y
+          CONFIG_FIRMWARE_INCLUDE_MTR=y
+          CONFIG_FIRMWARE_INCLUDE_NANO=y
+          CONFIG_FIRMWARE_INCLUDE_SERIAL=y
+          CONFIG_FIRMWARE_INCLUDE_NAPT66=y
+          CONFIG_FIRMWARE_INCLUDE_ARIA=n
+          CONFIG_FIRMWARE_INCLUDE_ARIA_WEB_CONTROL=n
+          CONFIG_FIRMWARE_INCLUDE_TRANSMISSION=n
+          CONFIG_FIRMWARE_INCLUDE_TRANSMISSION_WEB_CONTROL=n
+          CONFIG_FIRMWARE_INCLUDE_XUPNPD=n
+          CONFIG_FIRMWARE_INCLUDE_MINIDLNA=n
+          CONFIG_FIRMWARE_INCLUDE_FIREFLY=n
+          CONFIG_FIRMWARE_INCLUDE_CADDY=n
+          CONFIG_FIRMWARE_INCLUDE_CADDYBIN=n
+          CONFIG_FIRMWARE_INCLUDE_WYY=n
+          CONFIG_FIRMWARE_INCLUDE_WYYBIN=n
+          CONFIG_FIRMWARE_INCLUDE_HDPARM=n
+          CONFIG_FIRMWARE_INCLUDE_PARTED=n
+          CONFIG_FIRMWARE_INCLUDE_TTYD=n
+          CONFIG_FIRMWARE_INCLUDE_LRZSZ=n
+          CONFIG_FIRMWARE_INCLUDE_SOCAT=n
+          CONFIG_FIRMWARE_INCLUDE_DUMP1090=n
+          CONFIG_FIRMWARE_INCLUDE_RTL_SDR=n
+          CONFIG_FIRMWARE_INCLUDE_MINIEAP=n
+          CONFIG_FIRMWARE_INCLUDE_NJIT_CLIENT=n
+          CONFIG_FIRMWARE_INCLUDE_DOGCOM=n
+          CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT=n
+          CONFIG_FIRMWARE_INCLUDE_GDUT_DRCOM=n
+          CONFIG_FIRMWARE_INCLUDE_MENTOHUST=n
+          CONFIG_FIRMWARE_INCLUDE_OPENVPN=n
+          CONFIG_FIRMWARE_INCLUDE_SSWAN=n
+          CONFIG_FIRMWARE_INCLUDE_RPL2TP=n
+          CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n
+          CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=n
+          CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n
+          CONFIG_FIRMWARE_INCLUDE_UVC=n
+          CONFIG_FIRMWARE_INCLUDE_AUDIO=n
+          CONFIG_FIRMWARE_INCLUDE_QOS=n
+          CONFIG_FIRMWARE_INCLUDE_IMQ=n
+          CONFIG_FIRMWARE_INCLUDE_IFB=n
+          CONFIG_FIRMWARE_INCLUDE_XFRM=n
+          CONFIG_FIRMWARE_INCLUDE_HTOP=n
+          CONFIG_FIRMWARE_INCLUDE_VLMCSD=n
+          CONFIG_FIRMWARE_INCLUDE_REDSOCKS=n
+          EOF
+          grep -E "CONFIG_FIRMWARE_INCLUDE_(ADGUARDHOME|NTFS_3G|SFE|IPERF3|SMBD|FRPC)" .config
+
+      - name: Pre-download frp binary
+        run: |
+          cd trunk/user/frp
+          wget -q -t3 --timeout=30 -O frp_0.29.0_linux_mipsle.tar.gz \
+            https://github.com/fatedier/frp/releases/download/v0.29.0/frp_0.29.0_linux_mipsle.tar.gz
+          tar xf frp_0.29.0_linux_mipsle.tar.gz
+
+      - name: Build firmware
+        run: |
+          set -o pipefail
+          cd trunk
+          sudo ./clear_tree_simple || true
+          sudo ./build_firmware_modify B70 0 2>&1 | tee build.log
+          echo "==== images ===="
+          ls -lh images/
+          du -h images/*.trx || true
+
+      - name: Verify AdGuardHome inside rootfs
+        run: |
+          cd trunk
+          echo "--- romfs content check ---"
+          ls -lh romfs/usr/bin/AdGuardHome 2>/dev/null || ls -lh stage/usr/bin/AdGuardHome 2>/dev/null || echo "not found in romfs/stage"
+          grep -c "AdGuardHome" build.log || true
+
+      - name: Checksum and package
+        if: success()
+        run: |
+          mkdir -p out
+          cp trunk/images/*.trx out/
+          cd out
+          sha256sum *.trx | tee SHA256.txt
+          ls -lh
+
+      - name: Show build log tail on failure
+        if: failure()
+        run: tail -80 trunk/build.log || true
+
+      - name: Upload firmware artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: B70-padavan-adg
+          path: out/
+          retention-days: 90
